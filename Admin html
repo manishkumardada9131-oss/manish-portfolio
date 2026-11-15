@@ -1,0 +1,234 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Manish | Admin Panel</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 25px;
+      background: #101010; color: #f4f1eb;
+      font-family: Arial, sans-serif;
+    }
+    main { max-width: 650px; margin: 40px auto; }
+    h1 { color: #ff6538; }
+    .panel {
+      background: #191919; padding: 25px;
+      border-radius: 12px; margin-top: 20px;
+    }
+    input, button {
+      width: 100%; padding: 14px; margin: 9px 0;
+      border-radius: 6px; border: 1px solid #444;
+      font-size: 16px;
+    }
+    input { background: #222; color: white; }
+    button {
+      background: #ff6538; color: #111;
+      font-weight: bold; border: 0;
+    }
+    .item {
+      background: #222; padding: 12px;
+      margin: 12px 0; border-radius: 8px;
+    }
+    .item img {
+      width: 100%; max-height: 220px;
+      object-fit: contain;
+    }
+    .delete { background: #b83232; color: white; }
+    #dashboard { display: none; }
+    #message { color: #ffb49d; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>MANISH — ADMIN</h1>
+  <p>यह पेज सिर्फ वेबसाइट के मालिक के लिए है।</p>
+
+  <section class="panel" id="login">
+    <h2>Admin Login</h2>
+    <input id="email" type="email" placeholder="Admin email">
+    <input id="password" type="password" placeholder="Password">
+    <button id="loginBtn">Login</button>
+    <p id="loginMessage"></p>
+  </section>
+
+  <section class="panel" id="dashboard">
+    <h2>Upload New Design</h2>
+    <input id="title" placeholder="Design title">
+    <input id="category" placeholder="Category (Poster, Logo, Banner)">
+    <input id="image" type="file" accept="image/*">
+    <button id="uploadBtn">Upload Design</button>
+    <button id="logoutBtn">Logout</button>
+    <p id="message"></p>
+    <h2>Your Designs</h2>
+    <div id="designs"></div>
+  </section>
+</main>
+
+<script>
+const SUPABASE_URL = "https://qomtgefmnbbkoixlzcln.supabase.co";
+const SUPABASE_KEY = "sb_publishable__oNyfulgDPJLI3xv1Kp3aQ__1zs6g8x";
+const ADMIN_ID = "bd631020-7e4d-4b61-a7ce-e3926fefff9c";
+const BUCKET = "portfolio-images";
+
+const client = window.supabase.createClient(
+  SUPABASE_URL, SUPABASE_KEY
+);
+
+const loginBox = document.getElementById("login");
+const dashboard = document.getElementById("dashboard");
+const loginMessage = document.getElementById("loginMessage");
+const message = document.getElementById("message");
+
+async function checkAdmin() {
+  const { data } = await client.auth.getSession();
+  const user = data.session?.user;
+
+  if (user && user.id === ADMIN_ID) {
+    loginBox.style.display = "none";
+    dashboard.style.display = "block";
+    loadDesigns();
+  } else {
+    if (user) await client.auth.signOut();
+    loginBox.style.display = "block";
+    dashboard.style.display = "none";
+  }
+}
+
+document.getElementById("loginBtn").onclick = async () => {
+  loginMessage.textContent = "Logging in...";
+  const email = document.getElementById("email").value.trim();
+  const password = document.getElementById("password").value;
+
+  const { data, error } = await client.auth.signInWithPassword({
+    email, password
+  });
+
+  if (error) {
+    loginMessage.textContent = error.message;
+    return;
+  }
+
+  if (data.user.id !== ADMIN_ID) {
+    await client.auth.signOut();
+    loginMessage.textContent = "Access denied.";
+    return;
+  }
+
+  loginMessage.textContent = "";
+  checkAdmin();
+};
+
+document.getElementById("uploadBtn").onclick = async () => {
+  message.textContent = "Uploading...";
+  const title = document.getElementById("title").value.trim();
+  const category = document.getElementById("category").value.trim() || "Design";
+  const file = document.getElementById("image").files[0];
+
+  if (!title || !file) {
+    message.textContent = "Title aur image dono zaroori hain.";
+    return;
+  }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "-");
+  const path = Date.now() + "-" + safeName;
+
+  const { error: uploadError } = await client.storage
+    .from(BUCKET).upload(path, file);
+
+  if (uploadError) {
+    message.textContent = uploadError.message;
+    return;
+  }
+
+  const { error: dbError } = await client
+    .from("portfolio_items")
+    .insert({ title, category, image_path: path });
+
+  if (dbError) {
+    await client.storage.from(BUCKET).remove([path]);
+    message.textContent = dbError.message;
+    return;
+  }
+
+  message.textContent = "Design uploaded successfully!";
+  document.getElementById("title").value = "";
+  document.getElementById("image").value = "";
+  loadDesigns();
+};
+
+async function loadDesigns() {
+  const area = document.getElementById("designs");
+  area.textContent = "Loading...";
+
+  const { data, error } = await client
+    .from("portfolio_items")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    area.textContent = error.message;
+    return;
+  }
+
+  area.innerHTML = "";
+
+  for (const item of data) {
+    const { data: imageData } = client.storage
+      .from(BUCKET).getPublicUrl(item.image_path);
+
+    const card = document.createElement("div");
+    card.className = "item";
+
+    const img = document.createElement("img");
+    img.src = imageData.publicUrl;
+    img.alt = item.title;
+
+    const name = document.createElement("p");
+    name.textContent = item.title + " — " + item.category;
+
+    const del = document.createElement("button");
+    del.className = "delete";
+    del.textContent = "Delete";
+    del.onclick = () => deleteDesign(item.id, item.image_path);
+
+    card.append(img, name, del);
+    area.append(card);
+  }
+}
+
+async function deleteDesign(id, path) {
+  if (!confirm("Kya aap is design ko delete karna chahte hain?")) return;
+
+  const { error: fileError } = await client.storage
+    .from(BUCKET).remove([path]);
+
+  if (fileError) {
+    message.textContent = fileError.message;
+    return;
+  }
+
+  const { error } = await client
+    .from("portfolio_items").delete().eq("id", id);
+
+  if (error) {
+    message.textContent = error.message;
+    return;
+  }
+
+  message.textContent = "Design deleted.";
+  loadDesigns();
+}
+
+document.getElementById("logoutBtn").onclick = async () => {
+  await client.auth.signOut();
+  location.reload();
+};
+
+checkAdmin();
+</script>
+</body>
+</html>
