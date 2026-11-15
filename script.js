@@ -9,3 +9,4 @@ nav.querySelectorAll("a").forEach(link => link.addEventListener("click", () => {
   toggle.setAttribute("aria-expanded", "false");
 }));
 document.querySelector("#year").textContent = new Date().getFullYear();
+document.querySelector("#year").textContent = new Date().getFullYear();
